@@ -1,8 +1,8 @@
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
-import os, shutil, uuid, asyncio, time
+import os, sys, shutil, uuid, asyncio, time, json
 
 from database import get_db
 from models import *
@@ -361,34 +361,102 @@ async def get_activity_stats(team_id: str, current_user=Depends(get_current_user
 CHARTS_DIR = "generated_charts"
 os.makedirs(CHARTS_DIR, exist_ok=True)
 
+# ─── RATE LIMITING ────────────────────────────────────────
+_last_run: dict = {}  # user_id -> datetime of last run
+
+def check_cooldown(user_id: str, seconds: int = 30):
+    key = str(user_id)
+    last = _last_run.get(key)
+    if last:
+        elapsed = (datetime.utcnow() - last).total_seconds()
+        if elapsed < seconds:
+            remaining = int(seconds - elapsed)
+            raise HTTPException(429, f"Please wait {remaining}s before running another agent.")
+    _last_run[key] = datetime.utcnow()
+
 @router.post("/agent/run")
 async def run_agent_pipeline(
     file: UploadFile = File(...),
+    manager_prompt: str = Form(""),
     current_user=Depends(get_current_user)
 ):
+    """
+    Blocking endpoint — runs the full AutoGen pipeline as a subprocess,
+    waits for it to complete, and returns charts + report in one response.
+    Same paradigm as the working Streamlit app.py.
+    """
+    check_cooldown(str(current_user["_id"]), seconds=60)
     db = get_db()
     run_id = str(uuid.uuid4())
-    
+    _start = time.time()
+
     # Save uploaded CSV
     csv_path = f"{CHARTS_DIR}/{run_id}_data.csv"
     with open(csv_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    # Log run start in DB
     await db.agent_runs.insert_one({
         "run_id": run_id,
         "user_id": ObjectId(current_user["_id"]),
+        "agent_type": "analyst",
         "status": "running",
         "started_at": datetime.utcnow(),
-        "charts": [],
-        "report": "",
-        "data_quality": ""
+        "charts": [], "report": "", "data_quality": ""
     })
 
-    # Run pipeline in background
-    asyncio.create_task(run_pipeline_task(run_id, csv_path, db, current_user))
-    
-    return {"run_id": run_id, "status": "running", "message": "Pipeline started"}
+    # Run pipeline_worker.py as isolated subprocess — blocks until done
+    backend_dir   = os.path.dirname(os.path.abspath(__file__))
+    worker_script = os.path.join(backend_dir, "pipeline_worker.py")
+    python_exe    = os.path.join(backend_dir, "venv", "bin", "python")
+    if not os.path.exists(python_exe):
+        python_exe = sys.executable
+
+    abs_csv        = os.path.abspath(csv_path)
+    abs_charts_dir = os.path.abspath(CHARTS_DIR)
+    done_file      = os.path.join(abs_charts_dir, f"{run_id}_done.json")
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            python_exe, worker_script, abs_csv, run_id, abs_charts_dir,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=backend_dir,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=600)
+        print(stdout.decode(errors="replace"), flush=True)
+
+        if proc.returncode != 0:
+            raise RuntimeError(f"Worker exited with code {proc.returncode}")
+        if not os.path.exists(done_file):
+            raise RuntimeError("Worker finished but produced no output")
+
+        with open(done_file) as f:
+            result = json.load(f)
+
+        charts       = result.get("charts", [])
+        report_text  = result.get("report", "")
+        data_quality = result.get("data_quality", "")
+        duration     = round(time.time() - _start, 1)
+
+        await db.agent_runs.update_one({"run_id": run_id}, {"$set": {
+            "status": "completed", "charts": charts, "report": report_text,
+            "data_quality": data_quality, "completed_at": datetime.utcnow(),
+            "duration_seconds": duration, "tokens_used": (len(report_text) + len(data_quality)) // 4,
+        }})
+
+        return {
+            "run_id": run_id, "status": "completed",
+            "charts": charts, "report": report_text,
+            "data_quality": data_quality, "duration_seconds": duration,
+            "started_at": datetime.utcnow(),
+        }
+
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        await db.agent_runs.update_one({"run_id": run_id}, {"$set": {
+            "status": "failed", "error": str(e), "completed_at": datetime.utcnow()
+        }})
+        raise HTTPException(500, f"Pipeline failed: {e}")
 
 @router.get("/agent/run/{run_id}")
 async def get_run_status(run_id: str, current_user=Depends(get_current_user)):
@@ -450,176 +518,61 @@ async def get_analytics_overview(team_id: str, current_user=Depends(get_current_
         "agent_runs": agent_runs
     }
 
-async def run_pipeline_task(run_id: str, csv_path: str, db, current_user):
+async def run_pipeline_task(run_id: str, csv_path: str, db, current_user, custom_prompt: str = None):
     """
-    Exact same 3-agent pipeline as app.py using pyautogen 0.2.35:
-    Phase 1 — Executive Manager (UserProxyAgent) + Senior Data Analyst (AssistantAgent)
-    Phase 2 — Report Manager (UserProxyAgent) + Business Report Writer (AssistantAgent)
+    Runs the AutoGen pipeline as a fully isolated subprocess (pipeline_worker.py).
+    This avoids all asyncio / event-loop conflicts that caused the thread-executor
+    approach to hang indefinitely.
     """
+    _run_start = time.time()
 
-    def _run_sync():
-        import autogen
-        import pandas as pd
-        import matplotlib
-        matplotlib.use('Agg')
-        import glob
-        import time
+    # Resolve absolute paths
+    backend_dir = os.path.dirname(os.path.abspath(__file__))
+    worker_script = os.path.join(backend_dir, "pipeline_worker.py")
+    python_exe    = os.path.join(backend_dir, "venv", "bin", "python")
+    if not os.path.exists(python_exe):
+        python_exe = sys.executable  # fallback to current interpreter
 
-        groq_key = os.getenv("GROQ_API_KEY")
+    abs_csv        = os.path.abspath(csv_path)
+    abs_charts_dir = os.path.abspath(CHARTS_DIR)
+    done_file      = os.path.join(abs_charts_dir, f"{run_id}_done.json")
 
-        # ── Exact same llm_config as app.py ──────────────────
-        llm_config = {
-            "config_list": [{
-                "model": "llama-3.3-70b-versatile",
-                "api_key": groq_key,
-                "api_type": "groq"
-            }],
-            "temperature": 0.0,
-        }
-
-        # ── PHASE 1: DATA ANALYST AGENT (exact app.py logic) ─
-        analyst = autogen.AssistantAgent(
-            name="Senior_Data_Analyst",
-            system_message="""You are a senior data analyst. Your ONLY job is to write complete, executable Python code.
-Always wrap code in a ```python block.
-NEVER write the word TERMINATE in any message. Ever.
-Save all charts to the current working directory.""",
-            llm_config=llm_config,
-        )
-
-        manager = autogen.UserProxyAgent(
-            name="Executive_Manager",
-            human_input_mode="NEVER",
-            max_consecutive_auto_reply=2,
-            is_termination_msg=lambda x: "exitcode: 0" in x.get("content", ""),
-            code_execution_config={"work_dir": ".", "use_docker": False},
-            system_message="Execute the code provided. Stop after first successful execution.",
-        )
-
-        # Build manager prompt exactly like app.py default_task
-        manager_prompt = f"""You are analyzing a raw, uncleaned enterprise sales dataset saved as '{csv_path}'.
-
-Read the CSV and detect column names automatically.
-The data is messy — expect missing values, duplicates, formatting inconsistencies,
-invalid entries (like 'abc' in numeric columns), negative values, and outliers.
-Handle all of it professionally before analysis.
-Print a data quality report showing exactly what was fixed and how many records were affected.
-
-IMPORTANT: Use matplotlib with Agg backend:
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-
-After cleaning, generate these business intelligence charts:
-1. Pie chart of primary numeric column share by top categorical column → save as '{CHARTS_DIR}/{run_id}_revenue_share.png'
-2. Horizontal bar chart of totals by category → save as '{CHARTS_DIR}/{run_id}_units_by_category.png'
-3. Cumulative primary metric Over Time (line chart) → save as '{CHARTS_DIR}/{run_id}_cumulative_trend.png'
-4. Side by side bar chart comparing top 2 numeric columns by category → save as '{CHARTS_DIR}/{run_id}_comparison.png'
-5. Boxplot showing spread across categories → save as '{CHARTS_DIR}/{run_id}_boxplot.png'
-
-Use plt.style.use('dark_background') for all charts.
-Save each with: plt.savefig(path, bbox_inches='tight', facecolor='#0d1320', dpi=120)
-Do NOT use plt.show().
-Do not include TERMINATE."""
-
-        manager.initiate_chat(analyst, message=manager_prompt)
-        time.sleep(1)
-
-        # Extract data quality log from chat (same as app.py)
-        data_quality = ""
-        for msg in manager.chat_messages.get(analyst, []):
-            content = msg.get("content", "")
-            if "exitcode: 0" in content:
-                data_quality = content[:3000]
-                break
-
-        # ── PHASE 2: REPORT WRITER AGENT (exact app.py logic) ─
-        df_analysis = pd.read_csv(csv_path)
-
-        # Auto-detect columns (agnostic, like app.py)
-        numeric_cols = df_analysis.select_dtypes(include='number').columns.tolist()
-        cat_cols = [c for c in df_analysis.select_dtypes(include='object').columns
-                    if df_analysis[c].nunique() < 20]
-
-        for col in numeric_cols:
-            df_analysis[col] = pd.to_numeric(df_analysis[col], errors='coerce')
-            df_analysis[col] = df_analysis[col].fillna(df_analysis[col].mean())
-
-        regional = {}
-        total_val = 0
-        top_region = "N/A"
-        top_category = "N/A"
-        category_avg = {}
-
-        if cat_cols and numeric_cols:
-            primary_num = numeric_cols[0]
-            primary_cat = cat_cols[0]
-            try:
-                regional = df_analysis.groupby(primary_cat)[primary_num].sum().round(2).to_dict()
-                total_val = df_analysis[primary_num].sum()
-                top_region = max(regional, key=regional.get) if regional else "N/A"
-            except Exception:
-                pass
-            if len(cat_cols) > 1:
-                try:
-                    category_avg = df_analysis.groupby(cat_cols[1])[primary_num].mean().round(2).to_dict()
-                    top_category = max(category_avg, key=category_avg.get) if category_avg else "N/A"
-                except Exception:
-                    pass
-
-        report_writer = autogen.AssistantAgent(
-            name="Business_Report_Writer",
-            system_message="""You are a senior business intelligence analyst.
-You write concise, professional executive summary reports based on data insights.
-Format your report with clear sections: Executive Summary, Key Findings, and Recommendations.
-Be specific with numbers. Write in a formal business tone.
-Do NOT write any code. Just write the report as plain text.""",
-            llm_config=llm_config,
-        )
-
-        report_manager = autogen.UserProxyAgent(
-            name="Report_Manager",
-            human_input_mode="NEVER",
-            max_consecutive_auto_reply=0,
-            code_execution_config=False,
-            is_termination_msg=lambda x: True,
-        )
-
-        # Exact same report_task structure as app.py
-        report_task = f"""
-Based on the following sales data analysis, write a professional business intelligence report:
-
-DATASET SUMMARY:
-- Total {numeric_cols[0] if numeric_cols else 'Value'}: {total_val:,.2f}
-- Top Performing Segment: {top_region} ({regional.get(top_region, 0):,.2f})
-- Breakdown by {cat_cols[0] if cat_cols else 'Category'}: {regional}
-- Average by {cat_cols[1] if len(cat_cols) > 1 else 'Sub-Category'}: {category_avg}
-- Top Sub-Category: {top_category}
-- Dataset had missing values (filled with column mean)
-
-Write a 3-section report: Executive Summary, Key Findings, and Strategic Recommendations.
-"""
-        report_manager.initiate_chat(report_writer, message=report_task)
-        time.sleep(1)
-
-        # Extract report text (exact same as app.py)
-        chat_history = report_manager.chat_messages.get(report_writer, [])
-        report_text = ""
-        for msg in chat_history:
-            if msg.get("role") == "assistant":
-                report_text = msg.get("content", "")
-                break
-
-        # Collect all generated charts
-        charts = [os.path.basename(f)
-                  for f in sorted(glob.glob(f"{CHARTS_DIR}/{run_id}_*.png"))]
-
-        return charts, report_text, data_quality
-
-    # Run blocking AutoGen in thread executor (keeps FastAPI async loop free)
-    loop = asyncio.get_event_loop()
     try:
-        charts, report_text, data_quality = await loop.run_in_executor(None, _run_sync)
+        print(f"🚀 Launching pipeline worker for run {run_id}", flush=True)
+
+        # Run pipeline_worker.py as a subprocess — completely isolated process
+        proc = await asyncio.create_subprocess_exec(
+            python_exe, worker_script, abs_csv, run_id, abs_charts_dir,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=backend_dir,
+        )
+
+        # Stream logs to console while waiting (timeout: 10 minutes)
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=600)
+            output = stdout.decode(errors="replace") if stdout else ""
+            print(output, flush=True)
+        except asyncio.TimeoutError:
+            proc.kill()
+            raise RuntimeError("Pipeline timed out after 10 minutes")
+
+        if proc.returncode != 0:
+            raise RuntimeError(f"Worker exited with code {proc.returncode}")
+
+        # Read results from done marker
+        if not os.path.exists(done_file):
+            raise RuntimeError("Worker finished but done.json not found")
+
+        with open(done_file) as f:
+            result = json.load(f)
+
+        charts       = result.get("charts", [])
+        report_text  = result.get("report", "")
+        data_quality = result.get("data_quality", "")
+
+        duration = time.time() - _run_start
+        tokens   = (len(report_text) + len(data_quality)) // 4
 
         await db.agent_runs.update_one(
             {"run_id": run_id},
@@ -628,10 +581,12 @@ Write a 3-section report: Executive Summary, Key Findings, and Strategic Recomme
                 "charts": charts,
                 "report": report_text,
                 "data_quality": data_quality,
-                "completed_at": datetime.utcnow()
+                "completed_at": datetime.utcnow(),
+                "duration_seconds": round(duration, 1),
+                "tokens_used": tokens,
             }}
         )
-        print(f"✅ Agent run {run_id} completed — {len(charts)} charts, report written")
+        print(f"✅ Agent run {run_id} completed — {len(charts)} charts in {duration:.1f}s")
 
     except Exception as e:
         import traceback
@@ -641,3 +596,303 @@ Write a 3-section report: Executive Summary, Key Findings, and Strategic Recomme
             {"$set": {"status": "failed", "error": str(e), "completed_at": datetime.utcnow()}}
         )
         print(f"❌ Agent run {run_id} failed: {e}")
+
+
+# ─── Analyst run logs (for live terminal) ────────────────────
+@router.get("/agent/run/{run_id}/logs")
+async def get_run_logs(run_id: str, current_user=Depends(get_current_user)):
+    db = get_db()
+    run = await db.agent_runs.find_one({"run_id": run_id})
+    if not run:
+        raise HTTPException(404, "Run not found")
+    return {
+        "run_id": run_id,
+        "status": run.get("status"),
+        "logs": run.get("data_quality", ""),
+        "report": run.get("report", ""),
+        "agent_type": run.get("agent_type", "analyst"),
+    }
+
+
+# ═══════════════════════════════════════════════════════════
+# LANGGRAPH AGENT ROUTES
+# ═══════════════════════════════════════════════════════════
+
+@router.post("/agent/sql")
+async def run_sql_agent_endpoint(
+    file: UploadFile = File(...),
+    question: str = Form(...),
+    session_id: str = Form(""),
+    current_user=Depends(get_current_user),
+):
+    """SQL Query Agent — natural language question → pandas → plain English answer.
+
+    Pass session_id to enable conversation memory across questions.
+    Omit or send empty string for a stateless single query.
+    """
+    check_cooldown(str(current_user["_id"]), seconds=30)
+    db = get_db()
+    run_id   = str(uuid.uuid4())
+    csv_path = f"{CHARTS_DIR}/{run_id}_sql.csv"
+
+    with open(csv_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    # Build thread_id for memory: user-scoped + session-scoped
+    user_id   = str(current_user["_id"])
+    thread_id = f"{user_id}_{session_id}" if session_id else None
+
+    started_at = datetime.utcnow()
+    await db.agent_runs.insert_one({
+        "run_id":     run_id,
+        "user_id":    ObjectId(current_user["_id"]),
+        "agent_type": "sql",
+        "status":     "running",
+        "started_at": started_at,
+        "question":   question,
+        "session_id": session_id or None,
+    })
+
+    def _run():
+        if thread_id:
+            from agents_langgraph import run_sql_agent_with_memory
+            return run_sql_agent_with_memory(csv_path, question, thread_id)
+        else:
+            from agents_langgraph import run_sql_agent
+            return run_sql_agent(csv_path, question)
+
+    loop = asyncio.get_event_loop()
+    t0   = time.time()
+    try:
+        result   = await loop.run_in_executor(None, _run)
+        duration = time.time() - t0
+        tokens   = (len(question) + len(result.get("query", "")) +
+                    len(result.get("result", "")) + len(result.get("explanation", ""))) // 4
+        status   = "failed" if result.get("error") else "completed"
+
+        await db.agent_runs.update_one({"run_id": run_id}, {"$set": {
+            "status":           status,
+            "result":           result,
+            "duration_seconds": round(duration, 1),
+            "tokens_used":      tokens,
+            "completed_at":     datetime.utcnow(),
+        }})
+        return {
+            "run_id":      run_id,
+            "query":       result.get("query", ""),
+            "result":      result.get("result", ""),
+            "explanation": result.get("explanation", ""),
+            "error":       result.get("error", ""),
+            "status":      status,
+            "session_id":  session_id or None,
+        }
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        await db.agent_runs.update_one({"run_id": run_id}, {"$set": {
+            "status": "failed", "error": str(e), "completed_at": datetime.utcnow()
+        }})
+        raise HTTPException(500, str(e))
+
+
+@router.post("/agent/forecast")
+async def run_forecast_agent_endpoint(
+    file: UploadFile = File(...),
+    current_user=Depends(get_current_user),
+):
+    """Forecasting Agent — CSV → LinearRegression → 30-day forecast + chart + insights."""
+    check_cooldown(str(current_user["_id"]), seconds=30)
+    db = get_db()
+    run_id   = str(uuid.uuid4())
+    csv_path = f"{CHARTS_DIR}/{run_id}_forecast.csv"
+
+    with open(csv_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    started_at = datetime.utcnow()
+    await db.agent_runs.insert_one({
+        "run_id":     run_id,
+        "user_id":    ObjectId(current_user["_id"]),
+        "agent_type": "forecast",
+        "status":     "running",
+        "started_at": started_at,
+    })
+
+    def _run():
+        from agents_langgraph import run_forecast_agent
+        return run_forecast_agent(csv_path)
+
+    loop = asyncio.get_event_loop()
+    t0   = time.time()
+    try:
+        result   = await loop.run_in_executor(None, _run)
+        duration = time.time() - t0
+        tokens   = len(result.get("insights", "")) // 4
+        status   = "failed" if result.get("error") else "completed"
+
+        await db.agent_runs.update_one({"run_id": run_id}, {"$set": {
+            "status":           status,
+            "result":           {k: v for k, v in result.items() if k != "chart_b64"},
+            "duration_seconds": round(duration, 1),
+            "tokens_used":      tokens,
+            "completed_at":     datetime.utcnow(),
+        }})
+        return {
+            "run_id":    run_id,
+            "forecast":  result.get("forecast", []),
+            "chart_b64": result.get("chart_b64", ""),
+            "insights":  result.get("insights", ""),
+            "date_col":  result.get("date_col", ""),
+            "value_col": result.get("value_col", ""),
+            "error":     result.get("error", ""),
+            "status":    status,
+        }
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        await db.agent_runs.update_one({"run_id": run_id}, {"$set": {
+            "status": "failed", "error": str(e), "completed_at": datetime.utcnow()
+        }})
+        raise HTTPException(500, str(e))
+
+
+@router.post("/agent/anomaly")
+async def run_anomaly_agent_endpoint(
+    file: UploadFile = File(...),
+    current_user=Depends(get_current_user),
+):
+    """Anomaly Detection Agent — CSV → Z-score analysis → flagged rows + chart + summary."""
+    check_cooldown(str(current_user["_id"]), seconds=30)
+    db = get_db()
+    run_id   = str(uuid.uuid4())
+    csv_path = f"{CHARTS_DIR}/{run_id}_anomaly.csv"
+
+    with open(csv_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    started_at = datetime.utcnow()
+    await db.agent_runs.insert_one({
+        "run_id":     run_id,
+        "user_id":    ObjectId(current_user["_id"]),
+        "agent_type": "anomaly",
+        "status":     "running",
+        "started_at": started_at,
+    })
+
+    def _run():
+        from agents_langgraph import run_anomaly_agent
+        return run_anomaly_agent(csv_path)
+
+    loop = asyncio.get_event_loop()
+    t0   = time.time()
+    try:
+        result   = await loop.run_in_executor(None, _run)
+        duration = time.time() - t0
+        tokens   = (len(result.get("summary", "")) + len(result.get("llm_explanations", ""))) // 4
+        status   = "failed" if result.get("error") else "completed"
+
+        await db.agent_runs.update_one({"run_id": run_id}, {"$set": {
+            "status":           status,
+            "result":           {k: v for k, v in result.items() if k != "chart_b64"},
+            "duration_seconds": round(duration, 1),
+            "tokens_used":      tokens,
+            "completed_at":     datetime.utcnow(),
+        }})
+        return {
+            "run_id":        run_id,
+            "anomalies":     result.get("anomalies", []),
+            "chart_b64":     result.get("chart_b64", ""),
+            "summary":       result.get("summary", ""),
+            "total_flagged": result.get("total_flagged", 0),
+            "error":         result.get("error", ""),
+            "status":        status,
+        }
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        await db.agent_runs.update_one({"run_id": run_id}, {"$set": {
+            "status": "failed", "error": str(e), "completed_at": datetime.utcnow()
+        }})
+        raise HTTPException(500, str(e))
+
+
+@router.get("/agent/{agent_type}/graph")
+async def get_agent_graph(agent_type: str, current_user=Depends(get_current_user)):
+    """Return the compiled LangGraph state machine as a Mermaid diagram string."""
+    VALID = {"sql", "forecast", "anomaly"}
+    if agent_type not in VALID:
+        raise HTTPException(400, f"agent_type must be one of {VALID}")
+    try:
+        def _build():
+            import os as _os; _os.environ.setdefault("GROQ_API_KEY", "dummy")
+            from agents_langgraph import (
+                _build_sql_graph, _build_forecast_graph, _build_anomaly_graph,
+            )
+            builders = {
+                "sql":      _build_sql_graph,
+                "forecast": _build_forecast_graph,
+                "anomaly":  _build_anomaly_graph,
+            }
+            graph = builders[agent_type]()
+            return graph.get_graph().draw_mermaid()
+
+        loop = asyncio.get_event_loop()
+        mermaid = await loop.run_in_executor(None, _build)
+        return {"agent_type": agent_type, "mermaid": mermaid}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+
+
+@router.get("/agent/monitor")
+async def get_agent_monitor(current_user=Depends(get_current_user)):
+    """AI Operations Monitor — aggregated stats for all agent runs."""
+    db = get_db()
+
+    all_runs = await db.agent_runs.find(
+        {"user_id": ObjectId(current_user["_id"])}
+    ).sort("started_at", -1).to_list(2000)
+
+    total_runs    = len(all_runs)
+    success_count = sum(1 for r in all_runs if r.get("status") == "completed")
+    success_rate  = round((success_count / max(total_runs, 1)) * 100, 1)
+
+    today      = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    runs_today = sum(1 for r in all_runs if r.get("started_at", datetime.min) >= today)
+
+    durations    = [r["duration_seconds"] for r in all_runs if r.get("duration_seconds")]
+    avg_duration = round(sum(durations) / max(len(durations), 1), 1) if durations else 0.0
+
+    runs_by_agent: dict = {"analyst": 0, "sql": 0, "forecast": 0, "anomaly": 0}
+    for r in all_runs:
+        at = r.get("agent_type", "analyst")
+        runs_by_agent[at] = runs_by_agent.get(at, 0) + 1
+
+    runs_last_7 = []
+    for d in range(6, -1, -1):
+        day_start = today - timedelta(days=d)
+        day_end   = day_start + timedelta(days=1)
+        count = sum(
+            1 for r in all_runs
+            if day_start <= r.get("started_at", datetime.min) < day_end
+        )
+        runs_last_7.append({"date": day_start.strftime("%m/%d"), "count": count})
+
+    recent_runs = []
+    for r in all_runs[:15]:
+        recent_runs.append({
+            "run_id":     r.get("run_id", str(r["_id"])),
+            "agent_type": r.get("agent_type", "analyst"),
+            "status":     r.get("status", "unknown"),
+            "duration":   round(r.get("duration_seconds", 0), 1),
+            "started_at": r.get("started_at", datetime.utcnow()).isoformat(),
+            "est_tokens": r.get("tokens_used", 0),
+        })
+
+    return {
+        "total_runs":           total_runs,
+        "success_rate":         success_rate,
+        "runs_today":           runs_today,
+        "avg_duration_seconds": avg_duration,
+        "runs_by_agent":        runs_by_agent,
+        "runs_last_7_days":     runs_last_7,
+        "recent_runs":          recent_runs,
+    }

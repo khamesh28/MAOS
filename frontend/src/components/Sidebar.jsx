@@ -1,63 +1,89 @@
 import { useState } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
-  LayoutDashboard, FolderKanban, Bot, BarChart3,
-  Users, Settings, LogOut, ChevronLeft, ChevronRight,
-  Cpu, Activity, Zap
+  LayoutDashboard, Bot, Activity, FolderKanban,
+  Clock, PieChart, BarChart3, Users, LogOut,
+  ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
+  Database, TrendingUp, AlertTriangle, BarChart2,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useTeam } from '../context/TeamContext'
 
-const NAV = [
-  { icon: LayoutDashboard, label: 'Overview', path: '/dashboard' },
-  { icon: FolderKanban, label: 'Projects', path: '/projects' },
-  { icon: Activity, label: 'Activity', path: '/activity' },
-  { icon: Bot, label: 'Agent Pipeline', path: '/agents' },
-  { icon: BarChart3, label: 'Analytics', path: '/analytics' },
-  { icon: Users, label: 'Team', path: '/team' },
+const AGENT_CHILDREN = [
+  { icon: BarChart2,     label: 'Data Analyst', path: '/agents/analyst' },
+  { icon: Database,      label: 'SQL Agent',    path: '/agents/sql' },
+  { icon: TrendingUp,    label: 'Forecasting',  path: '/agents/forecast' },
+  { icon: AlertTriangle, label: 'Anomaly Det.', path: '/agents/anomaly' },
 ]
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false)
+  const [agentsOpen, setAgentsOpen] = useState(true)
   const { user, logout } = useAuth()
   const { currentTeam, teams, selectTeam } = useTeam()
   const navigate = useNavigate()
+  const location = useLocation()
 
   const handleLogout = () => { logout(); navigate('/login') }
+  const isAgentActive = location.pathname.startsWith('/agents')
 
   return (
     <aside style={{
-      width: collapsed ? 64 : 220,
-      minWidth: collapsed ? 64 : 220,
-      background: 'var(--bg2)',
-      borderRight: '1px solid var(--border)',
+      width: collapsed ? 64 : 240,
+      minWidth: collapsed ? 64 : 240,
+      background: '#050b18',
+      borderRight: '1px solid rgba(255,255,255,0.06)',
       display: 'flex',
       flexDirection: 'column',
       transition: 'width 0.25s ease, min-width 0.25s ease',
       overflow: 'hidden',
-      position: 'relative'
+      position: 'relative',
     }}>
+
       {/* Logo */}
-      <div style={{ padding: '20px 16px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div style={{ width: 32, height: 32, borderRadius: 8, background: 'linear-gradient(135deg, var(--accent), var(--accent2))', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <Cpu size={16} color="white" />
-        </div>
+      <div style={{
+        padding: '20px 16px 16px',
+        borderBottom: '1px solid rgba(255,255,255,0.06)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+      }}>
+        <div style={{
+          width: 32, height: 32,
+          borderRadius: 10,
+          background: '#388bff',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexShrink: 0,
+          fontFamily: 'var(--font-display)',
+          fontWeight: 800,
+          fontSize: 16,
+          color: 'white',
+        }}>G</div>
         {!collapsed && (
           <div>
-            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, lineHeight: 1.2 }}>MAOS</div>
-            <div style={{ fontSize: 10, color: 'var(--text2)', letterSpacing: '0.5px' }}>ENTERPRISE</div>
+            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, lineHeight: 1.2, color: '#f0f6ff' }}>Genpact AI Hub</div>
+            <div style={{ fontSize: 10, color: '#3d5a7a', letterSpacing: '0.8px', textTransform: 'uppercase', marginTop: 2 }}>AI OPERATIONS</div>
           </div>
         )}
       </div>
 
       {/* Team Selector */}
       {!collapsed && currentTeam && (
-        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
-          <div style={{ fontSize: 10, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>Team</div>
+        <div style={{ padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          <div style={{ fontSize: 10, color: '#3d5a7a', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 6, fontWeight: 500 }}>Workspace</div>
           <select
             value={currentTeam.id}
             onChange={e => selectTeam(teams.find(t => t.id === e.target.value))}
-            style={{ width: '100%', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 8px', color: 'var(--text)', fontSize: 12, cursor: 'pointer' }}
+            style={{
+              width: '100%',
+              background: '#080f1e',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: 8,
+              padding: '6px 10px',
+              color: '#f0f6ff',
+              fontSize: 12,
+              cursor: 'pointer',
+            }}
           >
             {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
@@ -65,57 +91,162 @@ export default function Sidebar() {
       )}
 
       {/* Nav */}
-      <nav style={{ flex: 1, padding: '12px 8px', overflowY: 'auto' }}>
-        {NAV.map(({ icon: Icon, label, path }) => (
-          <NavLink
-            key={path}
-            to={path}
-            title={collapsed ? label : ''}
-            style={({ isActive }) => ({
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              padding: '9px 10px',
-              borderRadius: 8,
-              marginBottom: 2,
-              color: isActive ? 'var(--accent)' : 'var(--text2)',
-              background: isActive ? 'rgba(79,142,255,0.1)' : 'transparent',
-              transition: 'all 0.15s',
-              fontSize: 13,
-              fontWeight: isActive ? 600 : 400,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden'
-            })}
-          >
-            <Icon size={16} style={{ flexShrink: 0 }} />
-            {!collapsed && <span>{label}</span>}
-          </NavLink>
-        ))}
+      <nav style={{ flex: 1, padding: '10px 10px', overflowY: 'auto' }}>
+
+        {/* Overview */}
+        <NavLink
+          to="/dashboard"
+          className={({ isActive }) => `sidebar-nav-link${isActive ? ' active' : ''}`}
+          title={collapsed ? 'Overview' : ''}
+        >
+          <LayoutDashboard size={15} style={{ flexShrink: 0 }} />
+          {!collapsed && <span>Overview</span>}
+        </NavLink>
+
+        {/* AI Agents — expandable section */}
+        <button
+          onClick={() => !collapsed && setAgentsOpen(o => !o)}
+          title={collapsed ? 'AI Agents' : ''}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            width: '100%', padding: '8px 12px', borderRadius: 8, marginBottom: 1,
+            background: isAgentActive ? 'rgba(56,139,255,0.08)' : 'transparent',
+            borderLeft: `2px solid ${isAgentActive ? '#388bff' : 'transparent'}`,
+            color: isAgentActive ? '#f0f6ff' : '#7d9cc0',
+            fontSize: 13, fontWeight: isAgentActive ? 500 : 400,
+            transition: 'all 0.2s', whiteSpace: 'nowrap', overflow: 'hidden',
+          }}
+          onMouseEnter={e => {
+            if (!isAgentActive) {
+              e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
+              e.currentTarget.style.color = '#f0f6ff'
+            }
+          }}
+          onMouseLeave={e => {
+            if (!isAgentActive) {
+              e.currentTarget.style.background = 'transparent'
+              e.currentTarget.style.color = '#7d9cc0'
+            }
+          }}
+        >
+          <Bot size={15} style={{ flexShrink: 0 }} />
+          {!collapsed && (
+            <>
+              <span style={{ flex: 1, textAlign: 'left' }}>AI Agents</span>
+              {agentsOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            </>
+          )}
+        </button>
+
+        {/* Agent children */}
+        {!collapsed && agentsOpen && (
+          <div style={{ paddingLeft: 12, marginBottom: 4 }}>
+            {AGENT_CHILDREN.map(({ icon: Icon, label, path }) => (
+              <NavLink
+                key={path}
+                to={path}
+                className={({ isActive }) => `sidebar-sub-link${isActive ? ' active' : ''}`}
+              >
+                <Icon size={13} style={{ flexShrink: 0 }} />
+                <span>{label}</span>
+              </NavLink>
+            ))}
+          </div>
+        )}
+
+        {/* Monitor — with live dot */}
+        <NavLink
+          to="/monitor"
+          className={({ isActive }) => `sidebar-nav-link${isActive ? ' active' : ''}`}
+          title={collapsed ? 'Monitor' : ''}
+        >
+          <Activity size={15} style={{ flexShrink: 0 }} />
+          {!collapsed && (
+            <>
+              <span style={{ flex: 1 }}>Monitor</span>
+              <span style={{
+                width: 8, height: 8, borderRadius: '50%',
+                background: '#2ea84a',
+                animation: 'livePulse 2s infinite',
+                flexShrink: 0,
+              }} />
+            </>
+          )}
+        </NavLink>
+
+        <NavLink to="/projects" className={({ isActive }) => `sidebar-nav-link${isActive ? ' active' : ''}`} title={collapsed ? 'Projects' : ''}>
+          <FolderKanban size={15} style={{ flexShrink: 0 }} />
+          {!collapsed && <span>Projects</span>}
+        </NavLink>
+
+        <NavLink to="/activity" className={({ isActive }) => `sidebar-nav-link${isActive ? ' active' : ''}`} title={collapsed ? 'Activity Log' : ''}>
+          <Clock size={15} style={{ flexShrink: 0 }} />
+          {!collapsed && <span>Activity Log</span>}
+        </NavLink>
+
+        <NavLink to="/analytics" className={({ isActive }) => `sidebar-nav-link${isActive ? ' active' : ''}`} title={collapsed ? 'Analytics' : ''}>
+          <PieChart size={15} style={{ flexShrink: 0 }} />
+          {!collapsed && <span>Analytics</span>}
+        </NavLink>
+
+        <NavLink to="/agents" end className={({ isActive }) => `sidebar-nav-link${isActive ? ' active' : ''}`} title={collapsed ? 'Agent Runs' : ''}>
+          <BarChart3 size={15} style={{ flexShrink: 0 }} />
+          {!collapsed && <span>Agent Runs</span>}
+        </NavLink>
+
+        <NavLink to="/team" className={({ isActive }) => `sidebar-nav-link${isActive ? ' active' : ''}`} title={collapsed ? 'Team' : ''}>
+          <Users size={15} style={{ flexShrink: 0 }} />
+          {!collapsed && <span>Team</span>}
+        </NavLink>
       </nav>
 
-      {/* Bottom */}
-      <div style={{ padding: '12px 8px', borderTop: '1px solid var(--border)' }}>
-        {!collapsed && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', marginBottom: 4 }}>
-            <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent), var(--accent2))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+      {/* User + Logout */}
+      <div style={{ padding: '10px 10px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+        {!collapsed && user && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', marginBottom: 6 }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: '50%',
+              background: 'linear-gradient(135deg, #388bff, #5b6af0)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 12, fontWeight: 700, flexShrink: 0, color: 'white',
+            }}>
               {user?.name?.[0]?.toUpperCase()}
             </div>
-            <div style={{ overflow: 'hidden' }}>
-              <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.name}</div>
-              <div style={{ fontSize: 10, color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.email}</div>
+            <div style={{ overflow: 'hidden', flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#f0f6ff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.name}</div>
+              <div style={{ fontSize: 11, color: '#3d5a7a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.email}</div>
             </div>
           </div>
         )}
-        <button onClick={handleLogout} className="btn-icon" style={{ width: '100%', justifyContent: 'center', display: 'flex', gap: 6, alignItems: 'center', padding: '8px' }}>
+        <button
+          onClick={handleLogout}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            gap: 6, padding: '7px 12px', borderRadius: 8,
+            background: 'transparent', border: '1px solid rgba(255,255,255,0.08)',
+            color: '#7d9cc0', fontSize: 12, transition: 'all 0.2s', cursor: 'pointer',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.14)'; e.currentTarget.style.color = '#f0f6ff' }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#7d9cc0' }}
+        >
           <LogOut size={14} />
-          {!collapsed && <span style={{ fontSize: 12 }}>Logout</span>}
+          {!collapsed && <span>Logout</span>}
         </button>
       </div>
 
       {/* Collapse toggle */}
       <button
         onClick={() => setCollapsed(!collapsed)}
-        style={{ position: 'absolute', top: 22, right: -12, width: 24, height: 24, borderRadius: '50%', background: 'var(--bg3)', border: '1px solid var(--border2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text2)', zIndex: 10, transition: 'all 0.2s' }}
+        style={{
+          position: 'absolute', top: 24, right: -12,
+          width: 24, height: 24, borderRadius: '50%',
+          background: '#0c1628',
+          border: '1px solid rgba(255,255,255,0.1)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: '#7d9cc0', zIndex: 10, transition: 'all 0.2s', cursor: 'pointer',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.color = '#f0f6ff' }}
+        onMouseLeave={e => { e.currentTarget.style.color = '#7d9cc0' }}
       >
         {collapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
       </button>

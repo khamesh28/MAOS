@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { Cpu, Eye, EyeOff } from 'lucide-react'
+import { Eye, EyeOff } from 'lucide-react'
 
 export default function Login() {
   const [form, setForm] = useState({ email: '', password: '' })
@@ -23,28 +23,42 @@ export default function Login() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', position: 'relative', overflow: 'hidden' }}>
-      {/* Background glow */}
-      <div style={{ position: 'absolute', top: '20%', left: '50%', transform: 'translateX(-50%)', width: 600, height: 600, background: 'radial-gradient(circle, rgba(79,142,255,0.06) 0%, transparent 70%)', pointerEvents: 'none' }} />
-
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: '#03070f',
+      backgroundImage: 'radial-gradient(ellipse at 50% 0%, rgba(56,139,255,0.08) 0%, transparent 60%)',
+      position: 'relative', overflow: 'hidden',
+    }}>
       <div style={{ width: '100%', maxWidth: 400, padding: '0 20px', animation: 'fadeUp 0.5s ease' }}>
+
         {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 40, justifyContent: 'center' }}>
-          <div style={{ width: 40, height: 40, borderRadius: 10, background: 'linear-gradient(135deg, var(--accent), var(--accent2))', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Cpu size={20} color="white" />
-          </div>
+          <div style={{
+            width: 44, height: 44, borderRadius: 12,
+            background: '#388bff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 22, color: 'white',
+          }}>G</div>
           <div>
-            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 20 }}>MAOS Enterprise</div>
-            <div style={{ fontSize: 11, color: 'var(--text2)', letterSpacing: '1px' }}>MULTI-AGENT ORCHESTRATION</div>
+            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 22, color: '#f0f6ff' }}>Genpact AI Hub</div>
+            <div style={{ fontSize: 11, color: '#3d5a7a', letterSpacing: '2px', textTransform: 'uppercase', marginTop: 2 }}>AI OPERATIONS PLATFORM</div>
           </div>
         </div>
 
-        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 32 }}>
-          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700, marginBottom: 6 }}>Welcome back</h1>
+        {/* Card */}
+        <div style={{
+          background: 'linear-gradient(145deg, #0c1628, #080f1e)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: 'var(--radius)',
+          padding: 32,
+          boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
+        }}>
+          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700, marginBottom: 6, color: '#f0f6ff' }}>Welcome back</h1>
           <p style={{ color: 'var(--text2)', fontSize: 13, marginBottom: 24 }}>Sign in to your workspace</p>
 
           {error && (
-            <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, padding: '10px 14px', color: 'var(--danger)', fontSize: 13, marginBottom: 16 }}>
+            <div style={{ background: 'rgba(229,72,77,0.08)', border: '1px solid rgba(229,72,77,0.2)', borderRadius: 8, padding: '10px 14px', color: 'var(--danger)', fontSize: 13, marginBottom: 16 }}>
               {error}
             </div>
           )}
@@ -63,7 +77,7 @@ export default function Login() {
                 </button>
               </div>
             </div>
-            <button type="submit" className="btn btn-primary w-full" style={{ width: '100%', justifyContent: 'center', padding: '11px' }} disabled={loading}>
+            <button type="submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '11px' }} disabled={loading}>
               {loading ? <span className="spinner" style={{ width: 16, height: 16 }} /> : 'Sign In'}
             </button>
           </form>

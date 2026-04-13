@@ -7,9 +7,17 @@ import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import Projects from './pages/Projects'
 import Activity from './pages/Activity'
-import AgentPipeline from './pages/AgentPipeline'
 import Analytics from './pages/Analytics'
 import Team from './pages/Team'
+
+// AI Agent pages
+import AgentsHub       from './pages/AgentsHub'
+import AnalystAgent    from './pages/AnalystAgent'
+import SQLAgent        from './pages/SQLAgent'
+import ForecastAgent   from './pages/ForecastAgent'
+import AnomalyAgent    from './pages/AnomalyAgent'
+import Monitor         from './pages/Monitor'
+import ErrorBoundary   from './components/ErrorBoundary'
 
 function PrivateLayout() {
   const { isAuthenticated, loading } = useAuth()
@@ -35,15 +43,21 @@ export default function App() {
       <AuthProvider>
         <TeamProvider>
           <Routes>
-            <Route path="/login" element={<Login />} />
+            <Route path="/login"    element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route element={<PrivateLayout />}>
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/projects" element={<Projects />} />
-              <Route path="/activity" element={<Activity />} />
-              <Route path="/agents" element={<AgentPipeline />} />
-              <Route path="/analytics" element={<Analytics />} />
-              <Route path="/team" element={<Team />} />
+              <Route path="/dashboard"       element={<Dashboard />} />
+              <Route path="/projects"        element={<Projects />} />
+              <Route path="/activity"        element={<Activity />} />
+              <Route path="/analytics"       element={<Analytics />} />
+              <Route path="/team"            element={<Team />} />
+              {/* Agent routes */}
+              <Route path="/agents"          element={<ErrorBoundary><AgentsHub /></ErrorBoundary>} />
+              <Route path="/agents/analyst"  element={<ErrorBoundary><AnalystAgent /></ErrorBoundary>} />
+              <Route path="/agents/sql"      element={<ErrorBoundary><SQLAgent /></ErrorBoundary>} />
+              <Route path="/agents/forecast" element={<ErrorBoundary><ForecastAgent /></ErrorBoundary>} />
+              <Route path="/agents/anomaly"  element={<ErrorBoundary><AnomalyAgent /></ErrorBoundary>} />
+              <Route path="/monitor"         element={<ErrorBoundary><Monitor /></ErrorBoundary>} />
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
             </Route>
             <Route path="*" element={<Navigate to="/dashboard" replace />} />

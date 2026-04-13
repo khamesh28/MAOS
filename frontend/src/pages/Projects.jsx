@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
-import { Plus, FolderKanban, MoreHorizontal, X, Circle, ArrowRight, CheckCircle2 } from 'lucide-react'
+import { Plus, FolderKanban, X, ArrowRight } from 'lucide-react'
 import { useTeam } from '../context/TeamContext'
 import api from '../services/api'
 
 const STATUSES = ['todo', 'in_progress', 'review', 'done']
 const STATUS_LABELS = { todo: 'To Do', in_progress: 'In Progress', review: 'Review', done: 'Done' }
-const STATUS_COLORS = { todo: '#4a5568', in_progress: 'var(--accent)', review: 'var(--warning)', done: 'var(--success)' }
-const PRIORITY_COLORS = { low: 'var(--success)', medium: 'var(--warning)', high: '#f97316', critical: 'var(--danger)' }
+const STATUS_COLORS = { todo: '#3d5a7a', in_progress: '#388bff', review: '#d4920a', done: '#2ea84a' }
+const PRIORITY_COLORS = { low: '#2ea84a', medium: '#d4920a', high: '#f97316', critical: '#e5484d' }
 
 export default function Projects() {
   const { currentTeam } = useTeam()
@@ -15,7 +15,7 @@ export default function Projects() {
   const [tasks, setTasks] = useState([])
   const [showProjectModal, setShowProjectModal] = useState(false)
   const [showTaskModal, setShowTaskModal] = useState(false)
-  const [newProject, setNewProject] = useState({ name: '', description: '', color: '#4f8eff' })
+  const [newProject, setNewProject] = useState({ name: '', description: '', color: '#388bff' })
   const [newTask, setNewTask] = useState({ title: '', description: '', priority: 'medium', work_item_type: 'task' })
   const [loading, setLoading] = useState(false)
 
@@ -44,7 +44,7 @@ export default function Projects() {
       await api.post(`/teams/${currentTeam.id}/projects`, newProject)
       await loadProjects()
       setShowProjectModal(false)
-      setNewProject({ name: '', description: '', color: '#4f8eff' })
+      setNewProject({ name: '', description: '', color: '#388bff' })
     } catch (e) { console.error(e) }
     finally { setLoading(false) }
   }
@@ -93,7 +93,14 @@ export default function Projects() {
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, overflowX: 'auto', paddingBottom: 4 }}>
         {projects.map(p => (
           <button key={p.id} onClick={() => setSelectedProject(p)}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 14px', borderRadius: 8, border: `1px solid ${selectedProject?.id === p.id ? p.color : 'var(--border)'}`, background: selectedProject?.id === p.id ? `${p.color}18` : 'transparent', color: selectedProject?.id === p.id ? p.color : 'var(--text2)', fontSize: 13, fontWeight: selectedProject?.id === p.id ? 600 : 400, whiteSpace: 'nowrap', transition: 'all 0.15s', cursor: 'pointer' }}>
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8, padding: '7px 14px', borderRadius: 8,
+              border: `1px solid ${selectedProject?.id === p.id ? p.color : 'rgba(255,255,255,0.08)'}`,
+              background: selectedProject?.id === p.id ? `${p.color}12` : 'transparent',
+              color: selectedProject?.id === p.id ? p.color : 'var(--text2)',
+              fontSize: 13, fontWeight: selectedProject?.id === p.id ? 600 : 400,
+              whiteSpace: 'nowrap', transition: 'all 0.15s', cursor: 'pointer',
+            }}>
             <div style={{ width: 8, height: 8, borderRadius: '50%', background: p.color }} />
             {p.name}
             <span style={{ fontSize: 11, opacity: 0.7 }}>{p.task_count}</span>
@@ -114,7 +121,7 @@ export default function Projects() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ width: 10, height: 10, borderRadius: '50%', background: selectedProject.color }} />
-              <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16 }}>{selectedProject.name}</span>
+              <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16, color: 'var(--text)' }}>{selectedProject.name}</span>
             </div>
             <button className="btn btn-primary btn-sm" onClick={() => setShowTaskModal(true)}>
               <Plus size={14} /> Add Task
@@ -123,30 +130,44 @@ export default function Projects() {
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, flex: 1, overflowY: 'auto' }}>
             {STATUSES.map(status => (
-              <div key={status} style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 12, display: 'flex', flexDirection: 'column', gap: 8, minHeight: 200 }}>
+              <div key={status} style={{
+                background: 'linear-gradient(145deg, #0c1628 0%, #080f1e 100%)',
+                border: '1px solid rgba(255,255,255,0.06)',
+                borderRadius: 'var(--radius)', padding: 12,
+                display: 'flex', flexDirection: 'column', gap: 8, minHeight: 200,
+              }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <div style={{ width: 6, height: 6, borderRadius: '50%', background: STATUS_COLORS[status] }} />
-                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{STATUS_LABELS[status]}</span>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.6px' }}>{STATUS_LABELS[status]}</span>
                   </div>
-                  <span style={{ fontSize: 11, background: 'var(--bg3)', padding: '1px 7px', borderRadius: 10, color: 'var(--text2)' }}>{tasksByStatus[status].length}</span>
+                  <span style={{ fontSize: 11, background: 'rgba(255,255,255,0.05)', padding: '1px 7px', borderRadius: 10, color: 'var(--text3)' }}>{tasksByStatus[status].length}</span>
                 </div>
 
                 {tasksByStatus[status].map(task => (
-                  <div key={task.id} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', transition: 'border-color 0.15s' }}
-                    onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--border2)'}
-                    onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}>
-                    <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 8, lineHeight: 1.4 }}>{task.title}</div>
+                  <div key={task.id}
+                    style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, padding: '10px 12px', transition: 'border-color 0.15s' }}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'}
+                  >
+                    <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 8, lineHeight: 1.4, color: 'var(--text)' }}>{task.title}</div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <span style={{ fontSize: 10, color: PRIORITY_COLORS[task.priority], fontWeight: 600, textTransform: 'uppercase' }}>{task.priority}</span>
                       <div style={{ display: 'flex', gap: 4 }}>
                         {status !== 'done' && (
                           <button onClick={() => updateTaskStatus(task.id, STATUSES[STATUSES.indexOf(status) + 1])}
-                            style={{ background: 'none', color: 'var(--text2)', padding: 2 }} title="Move forward">
+                            style={{ background: 'none', color: 'var(--text3)', padding: 2, transition: 'color 0.15s' }}
+                            onMouseEnter={e => e.currentTarget.style.color = 'var(--text)'}
+                            onMouseLeave={e => e.currentTarget.style.color = 'var(--text3)'}
+                            title="Move forward">
                             <ArrowRight size={11} />
                           </button>
                         )}
-                        <button onClick={() => deleteTask(task.id)} style={{ background: 'none', color: 'var(--text3)', padding: 2 }} title="Delete">
+                        <button onClick={() => deleteTask(task.id)}
+                          style={{ background: 'none', color: 'var(--text3)', padding: 2, transition: 'color 0.15s' }}
+                          onMouseEnter={e => e.currentTarget.style.color = 'var(--danger)'}
+                          onMouseLeave={e => e.currentTarget.style.color = 'var(--text3)'}
+                          title="Delete">
                           <X size={11} />
                         </button>
                       </div>
@@ -177,7 +198,7 @@ export default function Projects() {
             </div>
             <div style={{ marginBottom: 20 }}>
               <label className="input-label">Color</label>
-              <input type="color" value={newProject.color} onChange={e => setNewProject(p => ({...p, color: e.target.value}))} style={{ width: 48, height: 36, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg3)', cursor: 'pointer', padding: 2 }} />
+              <input type="color" value={newProject.color} onChange={e => setNewProject(p => ({...p, color: e.target.value}))} style={{ width: 48, height: 36, borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.04)', cursor: 'pointer', padding: 2 }} />
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button className="btn btn-ghost" onClick={() => setShowProjectModal(false)}>Cancel</button>

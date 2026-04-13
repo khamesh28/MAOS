@@ -1,16 +1,16 @@
 import { useState, useEffect } from 'react'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, CartesianGrid } from 'recharts'
 import { useTeam } from '../context/TeamContext'
 import api from '../services/api'
 
-const COLORS = ['#4f8eff', '#7c3aed', '#06b6d4', '#10b981', '#f59e0b', '#ef4444']
+const COLORS = ['#388bff', '#5b6af0', '#06b6d4', '#2ea84a', '#d4920a', '#e5484d']
 
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null
   return (
-    <div style={{ background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 8, padding: '8px 12px', fontSize: 12 }}>
+    <div style={{ background: '#0c1628', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 12px', fontSize: 12 }}>
       <div style={{ color: 'var(--text2)', marginBottom: 4 }}>{label}</div>
-      {payload.map((p, i) => <div key={i} style={{ color: p.color }}>{p.name}: {p.value}</div>)}
+      {payload.map((p, i) => <div key={i} style={{ color: '#f0f6ff' }}>{p.name}: {p.value}</div>)}
     </div>
   )
 }
@@ -43,23 +43,23 @@ export default function Analytics() {
   )
 
   const taskData = overview ? [
-    { name: 'Done', value: overview.completed_tasks, fill: '#10b981' },
-    { name: 'Remaining', value: overview.total_tasks - overview.completed_tasks, fill: '#1f2937' },
+    { name: 'Done',      value: overview.completed_tasks,                               fill: '#2ea84a' },
+    { name: 'Remaining', value: overview.total_tasks - overview.completed_tasks,        fill: 'rgba(255,255,255,0.06)' },
   ] : []
 
   const activityChartData = activityStats?.recent?.map(d => ({
-    date: d.date?.slice(5),
+    date:  d.date?.slice(5),
     hours: parseFloat(d.hours?.toFixed(1)),
-    mood: d.mood
+    mood:  d.mood,
   })) || []
 
   const summaryCards = overview ? [
-    { label: 'Total Projects', value: overview.total_projects, color: 'var(--accent)' },
-    { label: 'Total Tasks', value: overview.total_tasks, color: '#a78bfa' },
-    { label: 'Completion Rate', value: `${overview.completion_rate}%`, color: 'var(--success)' },
-    { label: 'Team Size', value: overview.total_members, color: 'var(--accent3)' },
-    { label: 'Agent Runs', value: overview.agent_runs, color: 'var(--warning)' },
-    { label: 'Days Logged', value: activityStats?.total_days_logged || 0, color: 'var(--danger)' },
+    { label: 'Total Projects',  value: overview.total_projects,                      color: '#388bff' },
+    { label: 'Total Tasks',     value: overview.total_tasks,                         color: '#5b6af0' },
+    { label: 'Completion Rate', value: `${overview.completion_rate}%`,              color: '#2ea84a' },
+    { label: 'Team Size',       value: overview.total_members,                       color: '#06b6d4' },
+    { label: 'Agent Runs',      value: overview.agent_runs,                          color: '#d4920a' },
+    { label: 'Days Logged',     value: activityStats?.total_days_logged || 0,        color: '#e5484d' },
   ] : []
 
   return (
@@ -73,7 +73,7 @@ export default function Analytics() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 20 }}>
         {summaryCards.map(({ label, value, color }) => (
           <div key={label} className="stat-card" style={{ textAlign: 'center', padding: '16px 10px' }}>
-            <div className="stat-num" style={{ fontSize: 22, color }}>{value}</div>
+            <div className="stat-num" style={{ fontSize: 24 }}>{value}</div>
             <div className="stat-label" style={{ fontSize: 10 }}>{label}</div>
           </div>
         ))}
@@ -82,26 +82,25 @@ export default function Analytics() {
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginBottom: 16 }}>
         {/* Hours Chart */}
         <div className="card">
-          <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15, marginBottom: 16 }}>Daily Hours Logged</h3>
+          <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 15, color: 'var(--text)', marginBottom: 16 }}>Daily Hours Logged</h3>
           {activityChartData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={activityChartData} barSize={20}>
-                <XAxis dataKey="date" tick={{ fill: 'var(--text2)', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: 'var(--text2)', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <CartesianGrid stroke="rgba(255,255,255,0.04)" vertical={false} />
+                <XAxis dataKey="date" tick={{ fill: 'var(--text3)', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: 'var(--text3)', fontSize: 11 }} axisLine={false} tickLine={false} />
                 <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="hours" fill="var(--accent)" radius={[4, 4, 0, 0]} name="Hours" />
+                <Bar dataKey="hours" fill="#388bff" radius={[4, 4, 0, 0]} name="Hours" />
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <div className="empty-state" style={{ height: 200 }}>
-              <p>No activity data yet</p>
-            </div>
+            <div className="empty-state" style={{ height: 200 }}><p>No activity data yet</p></div>
           )}
         </div>
 
         {/* Task Completion Donut */}
         <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15, marginBottom: 16, alignSelf: 'flex-start' }}>Task Status</h3>
+          <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 15, color: 'var(--text)', marginBottom: 16, alignSelf: 'flex-start' }}>Task Status</h3>
           {overview?.total_tasks > 0 ? (
             <>
               <PieChart width={160} height={160}>
@@ -110,8 +109,8 @@ export default function Analytics() {
                 </Pie>
               </PieChart>
               <div style={{ textAlign: 'center', marginTop: 8 }}>
-                <div style={{ fontSize: 24, fontFamily: 'var(--font-display)', fontWeight: 800, color: 'var(--success)' }}>{overview.completion_rate}%</div>
-                <div style={{ fontSize: 12, color: 'var(--text2)' }}>completion rate</div>
+                <div style={{ fontSize: 24, fontFamily: 'var(--font-display)', fontWeight: 800, color: 'var(--text)' }}>{overview.completion_rate}%</div>
+                <div style={{ fontSize: 12, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.6px' }}>completion rate</div>
               </div>
             </>
           ) : (
@@ -123,13 +122,14 @@ export default function Analytics() {
       {/* Mood Trend */}
       {activityChartData.length > 0 && (
         <div className="card">
-          <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15, marginBottom: 16 }}>Mood Trend</h3>
+          <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 15, color: 'var(--text)', marginBottom: 16 }}>Mood Trend</h3>
           <ResponsiveContainer width="100%" height={120}>
             <LineChart data={activityChartData}>
-              <XAxis dataKey="date" tick={{ fill: 'var(--text2)', fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis domain={[1, 5]} tick={{ fill: 'var(--text2)', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <CartesianGrid stroke="rgba(255,255,255,0.04)" vertical={false} />
+              <XAxis dataKey="date" tick={{ fill: 'var(--text3)', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis domain={[1, 5]} tick={{ fill: 'var(--text3)', fontSize: 11 }} axisLine={false} tickLine={false} />
               <Tooltip content={<CustomTooltip />} />
-              <Line type="monotone" dataKey="mood" stroke="var(--warning)" strokeWidth={2} dot={{ fill: 'var(--warning)', r: 3 }} name="Mood" />
+              <Line type="monotone" dataKey="mood" stroke="#d4920a" strokeWidth={2} dot={{ fill: '#d4920a', r: 3 }} name="Mood" />
             </LineChart>
           </ResponsiveContainer>
         </div>

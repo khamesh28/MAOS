@@ -27,54 +27,49 @@ async def seed():
     db = client.maos_enterprise
 
     print("🧹 Clearing existing seed data...")
-    # Only clear collections, not indexes
-    for col in ["users","teams","team_members","projects","tasks","activities","agent_runs"]:
+    # ── Preserve khamesh's ObjectId so existing JWT tokens remain valid ──
+    # If we delete and recreate with a new _id, any logged-in browser sessions
+    # will have stale tokens that no longer match any user_id in activities/runs.
+    khamesh_existing = await db.users.find_one({"email": "khamesh@genpact.com"})
+    preserved_khamesh_id = khamesh_existing["_id"] if khamesh_existing else None
+
+    for col in ["teams","team_members","projects","tasks","activities","agent_runs"]:
         await db[col].delete_many({})
+    # Delete all users EXCEPT khamesh (so their _id is preserved)
+    await db.users.delete_many({"email": {"$ne": "khamesh@genpact.com"}})
 
     print("👥 Creating users...")
-    # Check if khamesh@genpact.com already exists, reuse if so
-    existing = await db.users.find_one({"email": "khamesh@genpact.com"})
-    if existing:
-        khamesh_id = existing["_id"]
-        print("   ♻️  Reusing existing khamesh@genpact.com account")
-        # Update password to known value
-        await db.users.update_one({"_id": khamesh_id}, {"$set": {"password": hp("password123")}})
-        users_data_extra = [
-            {"name": "Priya Sharma", "email": "priya.sharma@genpact.com", "role": "user"},
-            {"name": "Arjun Mehta", "email": "arjun.mehta@genpact.com", "role": "user"},
-            {"name": "Divya Nair", "email": "divya.nair@genpact.com", "role": "user"},
-            {"name": "Rohit Verma", "email": "rohit.verma@genpact.com", "role": "user"},
-            {"name": "Sneha Iyer", "email": "sneha.iyer@genpact.com", "role": "user"},
-            {"name": "Vikram Rao", "email": "vikram.rao@genpact.com", "role": "user"},
-            {"name": "Anjali Gupta", "email": "anjali.gupta@genpact.com", "role": "user"},
-        ]
-        user_ids = [khamesh_id]
-        for u in users_data_extra:
-            ex = await db.users.find_one({"email": u["email"]})
-            if ex:
-                user_ids.append(ex["_id"])
-            else:
-                doc = {**u, "password": hp("password123"), "created_at": dt(random.randint(60, 120))}
-                res = await db.users.insert_one(doc)
-                user_ids.append(res.inserted_id)
-    else:
-        users_data = [
-            {"name": "Khamesh P", "email": "khamesh@genpact.com", "role": "admin"},
-            {"name": "Priya Sharma", "email": "priya.sharma@genpact.com", "role": "user"},
-            {"name": "Arjun Mehta", "email": "arjun.mehta@genpact.com", "role": "user"},
-            {"name": "Divya Nair", "email": "divya.nair@genpact.com", "role": "user"},
-            {"name": "Rohit Verma", "email": "rohit.verma@genpact.com", "role": "user"},
-            {"name": "Sneha Iyer", "email": "sneha.iyer@genpact.com", "role": "user"},
-            {"name": "Vikram Rao", "email": "vikram.rao@genpact.com", "role": "user"},
-            {"name": "Anjali Gupta", "email": "anjali.gupta@genpact.com", "role": "user"},
-        ]
-        user_ids = []
-        for u in users_data:
+    users_data = [
+        {"name": "Khamesh P",     "email": "khamesh@genpact.com",        "role": "admin"},
+        {"name": "Priya Sharma",  "email": "priya.sharma@genpact.com",   "role": "user"},
+        {"name": "Arjun Mehta",   "email": "arjun.mehta@genpact.com",    "role": "user"},
+        {"name": "Divya Nair",    "email": "divya.nair@genpact.com",     "role": "user"},
+        {"name": "Rohit Verma",   "email": "rohit.verma@genpact.com",    "role": "user"},
+        {"name": "Sneha Iyer",    "email": "sneha.iyer@genpact.com",     "role": "user"},
+        {"name": "Vikram Rao",    "email": "vikram.rao@genpact.com",     "role": "user"},
+        {"name": "Anjali Gupta",  "email": "anjali.gupta@genpact.com",   "role": "user"},
+    ]
+    user_ids = []
+    for u in users_data:
+        if u["email"] == "khamesh@genpact.com" and preserved_khamesh_id:
+            # Reuse exact same _id — preserves all JWT tokens
+            await db.users.update_one(
+                {"_id": preserved_khamesh_id},
+                {"$set": {"name": u["name"], "password": hp("password123"), "role": u["role"]}},
+                upsert=False,
+            )
+            khamesh_id = preserved_khamesh_id
+            user_ids.append(khamesh_id)
+            print("   ♻️  Preserved khamesh ObjectId — existing sessions still valid")
+        else:
             doc = {**u, "password": hp("password123"), "created_at": dt(random.randint(60, 120))}
             res = await db.users.insert_one(doc)
-            user_ids.append(res.inserted_id)
-        khamesh_id = user_ids[0]
-    print(f"   ✅ {len(user_ids)} users ready")
+            uid = res.inserted_id
+            user_ids.append(uid)
+            if u["email"] == "khamesh@genpact.com":
+                khamesh_id = uid
+
+    print(f"   ✅ {len(user_ids)} users ready (khamesh _id: {khamesh_id})")
 
     # ─── TEAMS ───────────────────────────────────────────────
     print("🏢 Creating teams...")
@@ -229,21 +224,90 @@ async def seed():
 
     print(f"   ✅ {activity_count} activity logs created")
 
-    # ─── AGENT RUNS ──────────────────────────────────────────
-    print("🤖 Creating mock agent run history...")
-    run_statuses = ["completed", "completed", "completed", "completed", "failed"]
-    for i in range(5):
-        await db.agent_runs.insert_one({
-            "run_id": str(ObjectId()),
-            "user_id": khamesh_id,
-            "status": random.choice(run_statuses),
-            "charts": ["revenue_share.png", "units_category.png", "cumulative_revenue.png"] if random.random() > 0.2 else [],
-            "report": "Executive Summary: Analysis of enterprise sales data revealed strong Q1 performance with 23% YoY revenue growth. North region leads at 34% revenue share. Electronics dominates product mix. Strategic recommendation: Increase inventory allocation to high-performing regions.",
-            "data_quality": "Fixed 3 null values, removed 2 duplicates, corrected 1 type error",
-            "started_at": rand_date(14, 1),
-            "completed_at": rand_date(14, 1)
-        })
-    print("   ✅ 5 agent run history entries created")
+    # ─── AGENT RUNS (30 days, all 4 types) ───────────────────
+    print("🤖 Creating 30-day agent run history...")
+
+    AGENT_TYPES = ["analyst", "sql", "forecast", "anomaly"]
+    # Approximate distribution: analyst 40%, sql 30%, forecast 20%, anomaly 10%
+    AGENT_WEIGHTS = [0.40, 0.30, 0.20, 0.10]
+    # Realistic duration ranges per agent (seconds)
+    DURATION_RANGES = {
+        "analyst": (60, 180),
+        "sql": (5, 15),
+        "forecast": (10, 30),
+        "anomaly": (8, 20),
+    }
+    # Mock data per agent type
+    SQL_QUESTIONS = [
+        "What is the total revenue by region?",
+        "Which product has the highest sales?",
+        "Show me the top 5 customers by order value",
+        "What is the average deal size by category?",
+        "Which month had the highest revenue?",
+    ]
+    FORECAST_COLS = [("Date", "Revenue"), ("Month", "Sales"), ("Date", "Units"), ("Period", "Bookings")]
+    ANALYST_REPORTS = [
+        "Executive Summary: Analysis of enterprise sales data revealed strong Q1 performance with 23% YoY revenue growth. North region leads at 34% revenue share. Electronics dominates product mix. Strategic recommendation: Increase inventory allocation to high-performing regions.",
+        "Executive Summary: Data pipeline analysis shows 18% improvement in processing efficiency. Key finding: weekend data volumes 40% lower, suggesting batch scheduling optimization opportunity.",
+        "Executive Summary: Customer segmentation analysis identifies 3 high-value cohorts representing 67% of revenue. Churn risk elevated in SMB segment. Recommendation: targeted retention campaign.",
+    ]
+
+    run_count = 0
+    for day_offset in range(29, -1, -1):
+        day = datetime.utcnow() - timedelta(days=day_offset)
+        # 2-6 runs per day
+        n_runs = random.randint(2, 6)
+        for _ in range(n_runs):
+            agent_type = random.choices(AGENT_TYPES, weights=AGENT_WEIGHTS)[0]
+            # 70% success rate
+            success = random.random() < 0.70
+            status = "completed" if success else "failed"
+            dur_min, dur_max = DURATION_RANGES[agent_type]
+            duration = round(random.uniform(dur_min, dur_max), 1)
+            started_at = day + timedelta(
+                hours=random.randint(8, 20),
+                minutes=random.randint(0, 59)
+            )
+            completed_at = started_at + timedelta(seconds=duration)
+
+            doc = {
+                "run_id": str(ObjectId()),
+                "user_id": khamesh_id,
+                "agent_type": agent_type,
+                "status": status,
+                "started_at": started_at,
+                "completed_at": completed_at,
+                "duration_seconds": duration,
+                "tokens_used": random.randint(200, 2000),
+            }
+
+            if success:
+                if agent_type == "analyst":
+                    doc["charts"] = ["revenue_share.png", "units_category.png", "cumulative_trend.png"]
+                    doc["report"] = random.choice(ANALYST_REPORTS)
+                    doc["data_quality"] = "exitcode: 0 (success)\nFixed 3 null values, removed 2 duplicates"
+                elif agent_type == "sql":
+                    q = random.choice(SQL_QUESTIONS)
+                    doc["question"] = q
+                    doc["result"] = {"query": "df.groupby('Region')['Revenue'].sum()", "result": "North: 45000\nSouth: 38000\nEast: 29000", "explanation": "The North region leads with $45,000 in total revenue, followed by South at $38,000."}
+                elif agent_type == "forecast":
+                    dc, vc = random.choice(FORECAST_COLS)
+                    doc["result"] = {"date_col": dc, "value_col": vc, "insights": "Revenue shows a steady upward trend. Forecast projects 12% growth over the next 30 days."}
+                elif agent_type == "anomaly":
+                    n_anom = random.randint(2, 12)
+                    doc["result"] = {"total_flagged": n_anom, "summary": f"Detected {n_anom} anomalies across 2 columns. Recommend data validation review."}
+            else:
+                doc["error"] = random.choice([
+                    "LLM timeout after 30s",
+                    "CSV parse error: invalid encoding",
+                    "pandas eval error: column not found",
+                    "Connection error to Groq API",
+                ])
+
+            await db.agent_runs.insert_one(doc)
+            run_count += 1
+
+    print(f"   ✅ {run_count} agent run history entries created (30 days)")
 
     print("\n🎉 Seed complete! Summary:")
     print(f"   👤 Users: {len(user_ids)} (login: any email above, password: password123)")

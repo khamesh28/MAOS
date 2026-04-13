@@ -10,3 +10,10 @@ dist/
 
 # Mac
 .DS_Store
+# Generated run artifacts — don't commit
+backend/generated_charts/
+backend/.cache/
+backend/company_sales.csv
+backend/business_report.txt
+backend/*.png
+backend/tmp_code_*.py
