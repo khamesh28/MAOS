@@ -364,7 +364,7 @@ os.makedirs(CHARTS_DIR, exist_ok=True)
 # ─── RATE LIMITING ────────────────────────────────────────
 _last_run: dict = {}  # user_id -> datetime of last run
 
-def check_cooldown(user_id: str, seconds: int = 30):
+def check_cooldown(user_id: str, seconds: int = 10):
     key = str(user_id)
     last = _last_run.get(key)
     if last:
@@ -385,7 +385,7 @@ async def run_agent_pipeline(
     waits for it to complete, and returns charts + report in one response.
     Same paradigm as the working Streamlit app.py.
     """
-    check_cooldown(str(current_user["_id"]), seconds=60)
+    check_cooldown(str(current_user["_id"]), seconds=10)
     db = get_db()
     run_id = str(uuid.uuid4())
     _start = time.time()

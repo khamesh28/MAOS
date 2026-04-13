@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, X, Clock, Users, CheckSquare, Save } from 'lucide-react'
+import { Plus, X, Clock, Users, CheckSquare, Save, History } from 'lucide-react'
 import { useTeam } from '../context/TeamContext'
 import api from '../services/api'
 
@@ -7,18 +7,26 @@ const MOODS = ['😞', '😕', '😐', '🙂', '😄']
 
 export default function Activity() {
   const { currentTeam } = useTeam()
-  const [activity, setActivity] = useState({ meetings: [], tasks: [], notes: '', mood: 3 })
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
+  const [activity, setActivity]   = useState({ meetings: [], tasks: [], notes: '', mood: 3 })
+  const [history, setHistory]     = useState([])
+  const [saving, setSaving]       = useState(false)
+  const [saved, setSaved]         = useState(false)
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 
-  useEffect(() => { if (currentTeam) loadToday() }, [currentTeam])
+  useEffect(() => { if (currentTeam) { loadToday(); loadHistory() } }, [currentTeam])
 
   const loadToday = async () => {
     try {
       const { data } = await api.get(`/teams/${currentTeam.id}/activities/today`)
       setActivity({ meetings: data.meetings || [], tasks: data.tasks || [], notes: data.notes || '', mood: data.mood || 3 })
     } catch (e) { console.error(e) }
+  }
+
+  const loadHistory = async () => {
+    try {
+      const { data } = await api.get(`/teams/${currentTeam.id}/activities/stats`)
+      setHistory(data.recent || [])
+    } catch (e) {}
   }
 
   const save = async () => {
@@ -136,6 +144,33 @@ export default function Activity() {
           </div>
         </div>
       </div>
+
+      {/* Recent history */}
+      {history.length > 0 && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+            <History size={14} color="var(--text3)" />
+            <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 14 }}>Recent Activity History</span>
+            <span className="badge badge-blue">{history.length} days</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {history.map((day, i) => {
+              const maxH = Math.max(...history.map(d => d.hours), 1)
+              const pct  = Math.round((day.hours / maxH) * 100)
+              return (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'monospace', width: 48, flexShrink: 0 }}>{day.date?.slice(5)}</div>
+                  <div style={{ flex: 1, height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg, #388bff, #5b6af0)', borderRadius: 3, transition: 'width 0.4s ease' }} />
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text2)', width: 32, textAlign: 'right', flexShrink: 0 }}>{day.hours}h</div>
+                  <div style={{ fontSize: 14, flexShrink: 0 }}>{MOODS[(day.mood || 3) - 1]}</div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
