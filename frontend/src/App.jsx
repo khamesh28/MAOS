@@ -17,6 +17,7 @@ import SQLAgent        from './pages/SQLAgent'
 import ForecastAgent   from './pages/ForecastAgent'
 import AnomalyAgent    from './pages/AnomalyAgent'
 import Monitor         from './pages/Monitor'
+import AgentRuns       from './pages/AgentRuns'
 import ErrorBoundary   from './components/ErrorBoundary'
 
 function PrivateLayout() {
@@ -58,6 +59,7 @@ export default function App() {
               <Route path="/agents/forecast" element={<ErrorBoundary><ForecastAgent /></ErrorBoundary>} />
               <Route path="/agents/anomaly"  element={<ErrorBoundary><AnomalyAgent /></ErrorBoundary>} />
               <Route path="/monitor"         element={<ErrorBoundary><Monitor /></ErrorBoundary>} />
+              <Route path="/agent-runs"      element={<ErrorBoundary><AgentRuns /></ErrorBoundary>} />
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
             </Route>
             <Route path="*" element={<Navigate to="/dashboard" replace />} />

@@ -189,7 +189,7 @@ export default function Sidebar() {
           {!collapsed && <span>Analytics</span>}
         </NavLink>
 
-        <NavLink to="/agents" end className={({ isActive }) => `sidebar-nav-link${isActive ? ' active' : ''}`} title={collapsed ? 'Agent Runs' : ''}>
+        <NavLink to="/agent-runs" className={({ isActive }) => `sidebar-nav-link${isActive ? ' active' : ''}`} title={collapsed ? 'Agent Runs' : ''}>
           <BarChart3 size={15} style={{ flexShrink: 0 }} />
           {!collapsed && <span>Agent Runs</span>}
         </NavLink>

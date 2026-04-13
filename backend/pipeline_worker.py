@@ -155,10 +155,23 @@ Write a 3-section report: Executive Summary, Key Findings, and Strategic Recomme
 
     chat_history = report_manager.chat_messages.get(report_writer, [])
     report_text = ""
+    # AutoGen stores the proxy's own sent message as role="assistant" too,
+    # so skip anything that looks like our prompt and grab the real LLM output
     for msg in chat_history:
-        if msg.get("role") == "assistant":
-            report_text = msg.get("content", "")
-            break
+        content = (msg.get("content") or "").strip()
+        if not content or msg.get("role") == "system":
+            continue
+        if "DATASET SUMMARY" in content or "Write a 3-section report" in content:
+            continue  # this is the prompt we sent — skip it
+        report_text = content
+        break
+    # Fallback: last non-empty message
+    if not report_text:
+        for msg in reversed(chat_history):
+            content = (msg.get("content") or "").strip()
+            if content and "DATASET SUMMARY" not in content:
+                report_text = content
+                break
 
     print("[worker] Phase 2 complete.", flush=True)
 
